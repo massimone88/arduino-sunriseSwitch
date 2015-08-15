@@ -5,12 +5,13 @@
 #include <EEPROM.h>
 
 // initialize the library with the numbers of the interface pins
-//LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
-LiquidCrystal lcd(2, 3, 4, 5, 6, 7);
+
 //pins
 int pinButtons = A0;
-int pinLcd = A1; //to connect to pin 15 of lcd after 220 ohm resistor
-int pinRele1 = 10;
+//int pinLcd = A1; //to connect to pin 15 of lcd after 220 ohm resistor
+int pinLcd = 10;
+//int pinRele1 = 10;
+int pinRele1 = 12;
 int pinRele2 = 11;
 
 //state
@@ -50,6 +51,28 @@ struct SettingsObject{
 };
 
 //global variables
+//LCD Keypad shield
+int SELECT[]  =  {720,760};
+int LEFT[]    =  {480,520};
+int RIGTH[]   =  {0,20};
+int UP[]      =  {120,160};
+int DOWN[]    =  {300,350};
+int BACK[] = {5000,5001}; //there isn't
+int NO_BUTTON_VALUE[] = {1022,1024};
+LiquidCrystal lcd(8,9,4,5,6,7);
+
+////custom board
+//int SELECT[]  =  {5,15};
+//int LEFT[]    =  {1023,1024};
+//int RIGTH[]   =  {500,600};
+//int UP[]      =  {950,980};
+//int DOWN[]    =  {650,720};
+//int BACK[] = {980,1010}; //there isn't
+//int NO_BUTTON_VALUE[] = {0,5};
+//LiquidCrystal lcd(2, 3, 4, 5, 6, 7);
+
+
+
 int var_day = 1;
 int var_month = 1;
 int var_year = 2014;
@@ -96,51 +119,52 @@ int getButtonPressed() {
   int keyVal = analogRead(pinButtons);
   //Serial.println(keyVal);
   if (!buttonPressed) {
-    if (keyVal == 1023) {
+    if (LEFT[0] <= keyVal && keyVal <= LEFT[1]) {
       buttonPressed = true;
       Serial.println("button left pressed!");
       String valueStr = "value: " + String(keyVal);
       Serial.println(valueStr);
       return BUTTON_LEFT;
     }
-    else if (keyVal >= 980 && keyVal <= 1010) {
+    else if (BACK[0] <= keyVal && keyVal <= BACK[1]) {
       Serial.println("button back pressed!");
       String valueStr = "value: " + String(keyVal);
       Serial.println(valueStr);
       buttonPressed = true;
       return BUTTON_BACK;
     }
-    else if (keyVal >= 950 && keyVal <= 980) {
+    else if (UP[0] <= keyVal && keyVal <= UP[1]) {
       buttonPressed = true;
       Serial.println("button up pressed!");
       String valueStr = "value: " + String(keyVal);
       Serial.println(valueStr);
       return BUTTON_UP;
     }
-    else if (keyVal >= 650 && keyVal <= 720) {
+    else if (DOWN[0] <= keyVal && keyVal <= DOWN[1]) {
       buttonPressed = true;
       Serial.println("button down pressed!");
       String valueStr = "value: " + String(keyVal);
       Serial.println(valueStr);
       return BUTTON_DOWN;
     }
-    else if (keyVal >= 500 && keyVal <= 600) {
+    else if (RIGTH[0] <= keyVal && keyVal <= RIGTH[1]) {
       buttonPressed = true;
       Serial.println("button right pressed!");
       String valueStr = "value: " + String(keyVal);
       Serial.println(valueStr);
       return BUTTON_RIGHT;
     }
-    else if (keyVal >= 5 && keyVal <= 15) {
+    else if (SELECT[0] <= keyVal && keyVal <= SELECT[1]) {
       buttonPressed = true;
       Serial.println("button OK pressed!");
       String valueStr = "value: " + String(keyVal);
       Serial.println(valueStr);
       return BUTTON_OK;
-    }
-    
+    } 
   }
-  if (keyVal < 5) {
+  //Serial.println(keyVal);
+  if (NO_BUTTON_VALUE[0] <= keyVal && keyVal <= NO_BUTTON_VALUE[1]){
+    //Serial.println("button released!");
     buttonPressed = false;
   }
   return NO_BUTTON;
@@ -379,8 +403,8 @@ void doBatchMinute(){
               stateRele
             };
         EEPROM.put(0, settings2);
-        EEPROM.put(0, settings2);
         Serial.println("Saved!");
+        delay(1000);
         Serial.println("Now the value on EEPROM address is..");
         SettingsObject settings3;
         EEPROM.get( 0, settings3);
@@ -450,6 +474,11 @@ void loop() {
             lcd.clear();
             printSaveSettings();
             break;
+          case BUTTON_BACK:
+            if( is_running){
+              state = STATE_RUN;
+            }
+            break;
         }
         break;
       case STATE_MONTH:
@@ -474,6 +503,11 @@ void loop() {
             Serial.println("settings saved, go to save/no save question...");
             lcd.clear();
             printSaveSettings();
+            break;
+          case BUTTON_BACK:
+            if( is_running){
+              state = STATE_RUN;
+            }
             break;
         }
         break;
@@ -500,6 +534,11 @@ void loop() {
             lcd.clear();
             printSaveSettings();
             break;
+          case BUTTON_BACK:
+            if( is_running){
+              state = STATE_RUN;
+            }
+            break;
         }
         break;
       case STATE_HOUR:
@@ -525,6 +564,11 @@ void loop() {
             lcd.clear();
             printSaveSettings();
             break;
+          case BUTTON_BACK:
+            if( is_running){
+              state = STATE_RUN;
+            }
+            break;
         }
         break;
       case STATE_MINUTE:
@@ -549,6 +593,11 @@ void loop() {
             Serial.println("settings saved, go to save/no save question...");
             lcd.clear();
             printSaveSettings();
+            break;
+          case BUTTON_BACK:
+            if( is_running){
+              state = STATE_RUN;
+            }
             break;
         }
         break;
@@ -626,7 +675,11 @@ void loop() {
             Serial.println("go to calculating state...");
           }
           else {
-            state =  STATE_DAY;
+            if (is_running){
+              state =  STATE_RUN;
+            }else {
+              state =  STATE_DAY;
+            }
           }
           break;
         case BUTTON_BACK:
@@ -721,7 +774,11 @@ void loop() {
           state = STATE_CHANGE_OPTIONS;
           lcdOn = true;
           lcd.clear();
+          Serial.println("turning on lcd..");
+          digitalWrite(pinLcd, HIGH);
           printChangeQuestion();
+          lastSecond = second();
+          var_second = second();
           break;
         default:
           printMainScreen();
