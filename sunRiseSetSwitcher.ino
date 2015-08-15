@@ -23,8 +23,7 @@ const int STATE_RELE = 5;
 const int STATE_SAVE = 6;
 const int STATE_CALC = 7;
 const int STATE_RUN = 8;
-const int STATE_CHANGE = 9;
-const int STATE_CHANGE_OPTIONS = 10;
+const int STATE_CHANGE_OPTIONS = 9;
 const int NO_BUTTON = -1;
 const int BUTTON_OK = 1;
 const int BUTTON_BACK = 2;
@@ -64,10 +63,14 @@ int sunset_minute = 4;
 int state = 0;
 int buttonPressed = false;
 int lastButtonPressed = true;
+int last_minute = 0;
+int last_day = 0;
 int saveSettings = false;
 int lcdOn = false;
 int lastSecond = 0;
 int stateRele = 2;
+int positionButton = 0;
+bool is_running = false;
 SettingsObject settings; //Variable to store custom object read from EEPROM.
 
 //helper_function
@@ -238,6 +241,15 @@ void printMainScreen() {
   line2 += "T:" + int2string(sunset_hour, 2) + ":" + int2string(sunset_minute, 2);
   lcd.print(line2);
 }
+void printChangeQuestion(){
+  lcd.setCursor(0, 0);
+  String line1 = "What U change?";
+  lcd.print(line1);
+  lcd.setCursor(0, 1);
+  String line2 = "DateTime/Releays";
+  lcd.print(line2);
+
+}
 
 void setCursor() {
   switch (state) {
@@ -275,6 +287,14 @@ void setCursor() {
         lcd.setCursor(15, 1);
       }
       break;
+    case STATE_CHANGE_OPTIONS:
+      if (positionButton == 0) {
+          lcd.setCursor(7, 1);
+        }
+        else if (positionButton == 1) {
+          lcd.setCursor(15, 1);
+        }
+
   }
 }
 
@@ -310,14 +330,63 @@ void turnOffReleays(){
 }
 
 void turnOnReleays(){
-  if (stateRele == BOTH_RELE || stateRele == RELE1){
-      Serial.println("light ON Rele1!");
+  Serial.println("turnOnReleays");
+  Serial.println("stateRele:" + int2string(stateRele,2));
+  switch(stateRele){
+    case BOTH_RELE:
+      Serial.println("light ON both releays!");
       digitalWrite(pinRele1, HIGH);
+      digitalWrite(pinRele2, HIGH);
+      break;
+    case RELE1:
+      Serial.println("light ON Releay1!");
+      digitalWrite(pinRele1, HIGH);
+      digitalWrite(pinRele2, LOW);
+      break;
+    case RELE2:
+      Serial.println("light ON Releay2");
+      digitalWrite(pinRele1, LOW);
+      digitalWrite(pinRele2, HIGH);
+      break;
   }
-  if (stateRele == BOTH_RELE || stateRele == RELE2){
-    Serial.println("light ON Rele2!");
-    digitalWrite(pinRele2, HIGH);
-  }
+}
+
+void doBatchDay(){
+  if (last_day != day()) {
+        last_day = day();
+        var_month = month();
+        var_year = year();
+        var_hour = hour();
+        var_minute = minute();
+        state = STATE_CALC;
+      }
+}
+
+void doBatchMinute(){
+  if ( last_minute != minute()) {
+        Serial.println("check if there is sun light or not...");
+        last_minute = minute();
+        //check sunrisesunset
+        if (isThereDayLight()) {
+          turnOffReleays();
+        }
+        else {
+          turnOnReleays();
+        }
+        Serial.println("Update the EEPROM..");
+        SettingsObject settings2 = {
+              now(),
+              stateRele
+            };
+        EEPROM.put(0, settings2);
+        EEPROM.put(0, settings2);
+        Serial.println("Saved!");
+        Serial.println("Now the value on EEPROM address is..");
+        SettingsObject settings3;
+        EEPROM.get( 0, settings3);
+        Serial.println( settings3.time );
+        Serial.println( settings3.stateRele );
+      }
 }
 
 void setup() {
@@ -354,7 +423,6 @@ void setup() {
 }
 
 void loop() {
-  
   lcd.blink();
   if (state < STATE_RELE) {
     if (lastButtonPressed && lastButtonPressed != buttonPressed) {
@@ -460,7 +528,6 @@ void loop() {
         }
         break;
       case STATE_MINUTE:
-        //do something
         switch (getButtonPressed()) {
           case BUTTON_DOWN:
             var_minute -= 1;
@@ -494,7 +561,6 @@ void loop() {
   }
   switch (state) {
     case STATE_RELE:
-      //do something
         switch (getButtonPressed()) {
           case BUTTON_DOWN:
             break;
@@ -521,15 +587,20 @@ void loop() {
             printSaveSettings();
             break;
           case BUTTON_BACK:
-            state = STATE_MINUTE;
+            if (is_running){
+              state = STATE_RUN;
+              Serial.println("return to run state...");  
+            }
+            else{
+              state = STATE_MINUTE;
+              Serial.println("return to hour setting...");
+            }
             lcd.clear();
-            Serial.println("return to hour setting...");
             break;
         }
         setCursor();
         break;
     case STATE_SAVE:
-      //do something
       switch (getButtonPressed()) {
         case BUTTON_LEFT:
           saveSettings = true;
@@ -579,11 +650,53 @@ void loop() {
       state = STATE_RUN;
       lastSecond = second();
       var_second = second();
+      last_minute = minute();
+      last_day = day();
       lcdOn = true;
       lcd.clear();
       printMainScreen();
+      is_running = true;
       break;
     case STATE_CHANGE_OPTIONS:
+      lcdOn = true;
+      
+      switch (getButtonPressed()) {
+        case BUTTON_LEFT:
+          positionButton = 0;
+          lastSecond = second();
+          var_second = second();
+          break;
+        case BUTTON_RIGHT:
+          positionButton = 1;
+          lastSecond = second();
+          var_second = second();
+          break;
+        case BUTTON_OK:
+          switch(positionButton){
+            case 0:
+              state = STATE_DAY;
+              var_day = last_day;
+              var_minute = last_minute;
+              lcd.clear();
+              printDayTime();
+              break;
+            case 1:
+              state = STATE_RELE;
+              lcd.clear();
+              printReleaySettings();
+              break;
+          }
+          break;
+        case BUTTON_BACK:
+          state = STATE_RUN;
+          break;
+      }
+      setCursor();
+      doBatchMinute();
+      if (((var_second < lastSecond) && ((lastSecond + var_second) % 60 > seconds_threshold)) ||
+            ((var_second >= lastSecond) && ((var_second - lastSecond) > seconds_threshold))) {
+          state = STATE_RUN;
+        }
       break;
     case STATE_RUN:
       if (lcdOn and state == STATE_RUN) {
@@ -599,43 +712,16 @@ void loop() {
           printMainScreen();
         }
       }
-      if (var_day != day()) {
-        var_day = day();
-        var_month = month();
-        var_year = year();
-        var_hour = hour();
-        var_minute = minute();
-        state = STATE_CALC;
-        break;
-      }
-
-      if ( var_minute != minute()) {
-        Serial.println("check if there is sun light or not...");
-        var_minute = minute();
-        //check sunrisesunset
-        if (isThereDayLight()) {
-          turnOffReleays();
-        }
-        else {
-          turnOnReleays();
-        }
-        Serial.println("Update the EEPROM..");
-        SettingsObject settings2 = {
-              now(),
-              stateRele
-            };
-        EEPROM.put(0, settings2);
-        EEPROM.put(0, settings2);
-        Serial.println("Saved!");
-        Serial.println("Now the value on EEPROM address is..");
-        SettingsObject settings3;
-        EEPROM.get( 0, settings3);
-        Serial.println( settings3.time );
-        Serial.println( settings3.stateRele );
-      }
+      
       //do something
       switch (getButtonPressed()) {
         case NO_BUTTON:
+          break;
+        case BUTTON_BACK:
+          state = STATE_CHANGE_OPTIONS;
+          lcdOn = true;
+          lcd.clear();
+          printChangeQuestion();
           break;
         default:
           printMainScreen();
@@ -647,5 +733,10 @@ void loop() {
           break;
       }
       break;
+    break;
   }
-}
+  if (is_running){
+      doBatchDay();
+      doBatchMinute();
+  }
+}      
