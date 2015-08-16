@@ -3,15 +3,29 @@
 #include <Time.h>
 #include <sunriseset.h>
 #include <EEPROM.h>
-
+#include <DS3231.h>
+#include <Wire.h>
 // initialize the library with the numbers of the interface pins
+#define CUSTOM_BOARD 1
+#define RTC 1
+#define INIT 1
+//#define SAVE_EEPROM 0
+DS3231 Clock;
+bool Century=false;
+bool h12;
+bool PM;
+
 
 //pins
 int pinButtons = A0;
-//int pinLcd = A1; //to connect to pin 15 of lcd after 220 ohm resistor
+#ifdef CUSTOM_BOARD
+int pinLcd = A1; //to connect to pin 15 of lcd after 220 ohm resistor
+int pinRele1 = 10;
+#else
 int pinLcd = 10;
-//int pinRele1 = 10;
 int pinRele1 = 12;
+#endif
+
 int pinRele2 = 11;
 
 //state
@@ -52,6 +66,7 @@ struct SettingsObject{
 
 //global variables
 //LCD Keypad shield
+#ifndef CUSTOM_BOARD
 int SELECT[]  =  {720,760};
 int LEFT[]    =  {480,520};
 int RIGTH[]   =  {0,20};
@@ -60,17 +75,17 @@ int DOWN[]    =  {300,350};
 int BACK[] = {5000,5001}; //there isn't
 int NO_BUTTON_VALUE[] = {1022,1024};
 LiquidCrystal lcd(8,9,4,5,6,7);
-
-////custom board
-//int SELECT[]  =  {5,15};
-//int LEFT[]    =  {1023,1024};
-//int RIGTH[]   =  {500,600};
-//int UP[]      =  {950,980};
-//int DOWN[]    =  {650,720};
-//int BACK[] = {980,1010}; //there isn't
-//int NO_BUTTON_VALUE[] = {0,5};
-//LiquidCrystal lcd(2, 3, 4, 5, 6, 7);
-
+#else
+//custom board
+int SELECT[]  =  {5,15};
+int LEFT[]    =  {1023,1024};
+int RIGTH[]   =  {500,600};
+int UP[]      =  {950,980};
+int DOWN[]    =  {650,720};
+int BACK[] = {980,1010}; //there isn't
+int NO_BUTTON_VALUE[] = {0,5};
+LiquidCrystal lcd(2, 3, 4, 5, 6, 7);
+#endif
 
 
 int var_day = 1;
@@ -257,8 +272,14 @@ void printReleaySettings() {
 
 void printMainScreen() {
   lcd.setCursor(0, 0);
-  String line1 =  int2string(hour(), 2) + ":" + int2string(minute(), 2) + ":" +  int2string(second(), 2) + "   ";
+  String line1;
+  #ifdef RTC
+  line1 =  int2string(Clock.getHour(h12,PM), 2) + ":" + int2string(Clock.getMinute(), 2) + ":" +  int2string(Clock.getSecond(), 2) + "   ";
+  line1 += int2string(Clock.getDate(), 2) + "/" + int2string(Clock.getMonth(Century), 2);
+  #else
+  line1 =  int2string(hour(), 2) + ":" + int2string(minute(), 2) + ":" +  int2string(second(), 2) + "   ";
   line1 += int2string(day(), 2) + "/" + int2string(month(), 2);
+  #endif
   lcd.print(line1);
   lcd.setCursor(0, 1);
   String line2 =  "A:" + int2string(sunrise_hour, 2) + ":" + int2string(sunrise_minute, 2) + "  ";
@@ -342,9 +363,15 @@ void calculateSunRiseSunSet() {
 }
 
 int isThereDayLight() {
+  #ifdef RTC
+  return ((sunrise_hour < Clock.getHour(h12, PM) && Clock.getHour(h12, PM) < sunset_hour) ||
+          (sunrise_hour == Clock.getHour(h12, PM) && Clock.getMinute() >= sunrise_minute) ||
+          (sunset_hour == Clock.getHour(h12, PM) && Clock.getMinute() <= sunset_minute));
+  #else
   return ((sunrise_hour < hour() && hour() < sunset_hour) ||
           (sunrise_hour == hour() && minute() >= sunrise_minute) ||
           (sunset_hour == hour() && minute() <= sunset_minute));
+  #endif
 }
 
 void turnOffReleays(){
@@ -376,6 +403,17 @@ void turnOnReleays(){
 }
 
 void doBatchDay(){
+  #ifdef RTC
+  if (last_day != Clock.getDate()) {
+        last_day = Clock.getDate();
+        var_month = Clock.getMonth(Century);
+        var_year = Clock.getYear();
+        var_hour = Clock.getHour(h12, PM);
+        var_minute = Clock.getMinute();
+        state = STATE_CALC;
+      }
+  #else
+  
   if (last_day != day()) {
         last_day = day();
         var_month = month();
@@ -384,12 +422,19 @@ void doBatchDay(){
         var_minute = minute();
         state = STATE_CALC;
       }
+  #endif    
 }
 
 void doBatchMinute(){
-  if ( last_minute != minute()) {
+  int currentMinute;
+  #ifdef RTC
+  currentMinute = Clock.getMinute();
+  #else
+  currentMinute = minute();
+  #endif
+  if ( last_minute != currentMinute) {
         Serial.println("check if there is sun light or not...");
-        last_minute = minute();
+        last_minute = currentMinute;
         //check sunrisesunset
         if (isThereDayLight()) {
           turnOffReleays();
@@ -397,6 +442,7 @@ void doBatchMinute(){
         else {
           turnOnReleays();
         }
+        #ifdef SAVE_EEPROM
         Serial.println("Update the EEPROM..");
         SettingsObject settings2 = {
               now(),
@@ -410,6 +456,7 @@ void doBatchMinute(){
         EEPROM.get( 0, settings3);
         Serial.println( settings3.time );
         Serial.println( settings3.stateRele );
+        #endif
       }
 }
 
@@ -417,6 +464,8 @@ void setup() {
   var_day = var_month = 6;
   var_hour = 19;
   var_minute = 56;
+  // Start the I2C interface
+  Wire.begin();
   lcd.begin(16, 2);
   pinMode(pinLcd, OUTPUT);
   pinMode(pinRele1, OUTPUT);
@@ -429,21 +478,40 @@ void setup() {
   delay(1000);
   lcd.clear();
   printDayTime();
-  EEPROM.get( 0, settings);
-  Serial.println( "Read custom object from EEPROM: " );
-  Serial.println( settings.time );
-  Serial.println( settings.stateRele );
-  stateRele = settings.stateRele;
-  if (stateRele != -1){
+  #ifdef RTC
+    var_second=Clock.getSecond();
+    var_minute=Clock.getMinute();
+    var_hour=Clock.getHour(h12, PM);
+    var_day=Clock.getDate();
+    var_month=Clock.getMonth(Century);
+    var_year=Clock.getYear();
+    EEPROM.get(0, stateRele);
+    if (var_year != 0 && INIT == 0){
+      state= STATE_CALC;
+    }
+    var_second=00;
+    var_minute=30;
+    var_hour=10;
+    var_day=16;
+    var_month=8;
+    var_year=2015;
+  #else
+    EEPROM.get( 0, settings);
+    Serial.println( "Read custom object from EEPROM: " );
+    Serial.println( settings.time );
+    Serial.println( settings.stateRele );
+    stateRele = settings.stateRele;
     setTime(settings.time);
-    var_day = day();
-    var_month = month();
-    var_year = year();
-    var_hour = hour();
-    var_minute = minute();
-    var_second = second();
-    state= STATE_CALC;
-  }
+    if (stateRele != -1){
+      var_day = day();
+      var_month = month();
+      var_year = year();
+      var_hour = hour();
+      var_minute = minute();
+      var_second = second();
+      state= STATE_CALC;
+    }
+  #endif
 }
 
 void loop() {
@@ -660,7 +728,18 @@ void loop() {
         case BUTTON_OK:
           if (saveSettings) {
             Serial.println("settings saved!");
-            setTime(var_hour, var_minute, 0, var_day, var_month, var_year);
+            #ifdef RTC
+              Clock.setSecond(00);//Set the second 
+              Clock.setMinute(var_minute);//Set the minute 
+              Clock.setHour(var_hour);  //Set the hour 
+              Clock.setDoW(1);    //Set the day of the week
+              Clock.setDate(var_day);  //Set the date of the month
+              Clock.setMonth(var_month);  //Set the month of the year
+              Clock.setYear(var_hour - 2000);  //Set the year (Last two digits of the year)
+            #else
+              setTime(var_hour, var_minute, 0, var_day, var_month, var_year);
+            #endif
+
             Serial.println("time set!");
             Serial.println("today is  : " + int2string(var_day, 2) + "/" + int2string(var_month, 2) + "/" + int2string(var_year, 2) + " at " + int2string(var_hour, 2) + ":" + int2string(var_minute, 2));
             Serial.println("Rele option: " + int2string(stateRele,1));
@@ -668,9 +747,12 @@ void loop() {
               now(),
               stateRele
             };
+            #ifdef SAVE_EEPROM
             Serial.println("Saving the timestamp to EEPROM..!");
             EEPROM.put( 0, settings);
             Serial.println("Saved to address 0");
+            #endif
+
             state = STATE_CALC;
             Serial.println("go to calculating state...");
           }
@@ -701,10 +783,18 @@ void loop() {
       }
       //do something
       state = STATE_RUN;
+      Serial.println("change state to run");
+      #ifdef RTC
+      lastSecond = Clock.getSecond();
+      var_second = lastSecond;
+      last_minute = Clock.getMinute();
+      last_day = Clock.getDate();
+      #else
       lastSecond = second();
       var_second = second();
       last_minute = minute();
       last_day = day();
+      #endif
       lcdOn = true;
       lcd.clear();
       printMainScreen();
@@ -716,13 +806,23 @@ void loop() {
       switch (getButtonPressed()) {
         case BUTTON_LEFT:
           positionButton = 0;
+          #ifdef RTC
+          lastSecond = Clock.getSecond();
+          var_second = lastSecond;
+          #else
           lastSecond = second();
           var_second = second();
+          #endif
           break;
         case BUTTON_RIGHT:
           positionButton = 1;
+          #ifdef RTC
+          lastSecond = Clock.getSecond();
+          var_second = lastSecond;
+          #else
           lastSecond = second();
           var_second = second();
+          #endif
           break;
         case BUTTON_OK:
           switch(positionButton){
@@ -760,7 +860,11 @@ void loop() {
           digitalWrite(pinLcd, LOW);
         }
         if (var_second != second() and state == STATE_RUN) {
-          var_second = second();
+          #ifdef RTC
+            var_second = Clock.getSecond();
+          #else
+            var_second = second();
+          #endif
           //Serial.println("updating lcd printing...");
           printMainScreen();
         }
@@ -777,16 +881,26 @@ void loop() {
           Serial.println("turning on lcd..");
           digitalWrite(pinLcd, HIGH);
           printChangeQuestion();
+          #ifdef RTC
+          lastSecond = Clock.getSecond();
+          var_second = lastSecond;
+          #else
           lastSecond = second();
           var_second = second();
+          #endif
           break;
         default:
           printMainScreen();
           lcdOn = true;
           Serial.println("turning on lcd..");
           digitalWrite(pinLcd, HIGH);
+          #ifdef RTC
+          lastSecond = Clock.getSecond();
+          var_second = lastSecond;
+          #else
           lastSecond = second();
           var_second = second();
+          #endif
           break;
       }
       break;
