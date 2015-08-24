@@ -8,7 +8,7 @@
 // initialize the library with the numbers of the interface pins
 #define CUSTOM_BOARD 1
 #define RTC 1
-#define INIT 1
+#define INIT 0
 //#define SAVE_EEPROM 0
 DS3231 Clock;
 bool Century=false;
@@ -271,6 +271,7 @@ void printReleaySettings() {
 }
 
 void printMainScreen() {
+  Serial.println("printmainScreen");
   lcd.setCursor(0, 0);
   String line1;
   #ifdef RTC
@@ -486,7 +487,8 @@ void setup() {
     var_month=Clock.getMonth(Century);
     var_year=Clock.getYear();
     EEPROM.get(0, stateRele);
-    if (var_year != 0 && INIT == 0){
+    Serial.println("year: " + int2string(var_year,2));
+    if (var_year != 165 && INIT == 0){
       state= STATE_CALC;
     }
     var_second=00;
@@ -735,7 +737,7 @@ void loop() {
               Clock.setDoW(1);    //Set the day of the week
               Clock.setDate(var_day);  //Set the date of the month
               Clock.setMonth(var_month);  //Set the month of the year
-              Clock.setYear(var_hour - 2000);  //Set the year (Last two digits of the year)
+              Clock.setYear(var_year - 2000);  //Set the year (Last two digits of the year)
             #else
               setTime(var_hour, var_minute, 0, var_day, var_month, var_year);
             #endif
@@ -859,13 +861,15 @@ void loop() {
           lcdOn = false;
           digitalWrite(pinLcd, LOW);
         }
-        if (var_second != second() and state == STATE_RUN) {
-          #ifdef RTC
-            var_second = Clock.getSecond();
-          #else
-            var_second = second();
-          #endif
-          //Serial.println("updating lcd printing...");
+        int clock_second;
+        #ifdef RTC
+        clock_second = Clock.getSecond();
+        #else
+        clock_second = second();
+        #endif
+        
+        if (var_second != clock_second and state == STATE_RUN) {
+          var_second = clock_second;
           printMainScreen();
         }
       }
